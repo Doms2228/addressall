@@ -1,20 +1,24 @@
 import hashlib
 import base58
-import secp256k1
+from ecdsa import SigningKey, SECP256k1
 from concurrent.futures import ProcessPoolExecutor
 import multiprocessing
 import random
 import sys
 
-# Target address (gunakan set untuk lookup cepat)
 TARGET_ADDRESSES = {"19vkiEajfhuZ8bs8Zu2jgmC6oqZbWqhxhG"}
 
 def private_key_to_compressed_address(private_key_hex):
     try:
         private_key_bytes = bytes.fromhex(private_key_hex)
-        privkey = secp256k1.PrivateKey(private_key_bytes, raw=True)
-        public_key = privkey.pubkey.serialize(compressed=True)
-        sha256_hash = hashlib.sha256(public_key).digest()
+        sk = SigningKey.from_string(private_key_bytes, curve=SECP256k1)
+        vk = sk.verifying_key
+        # Compressed public key
+        x = vk.pubkey.point.x()
+        y = vk.pubkey.point.y()
+        prefix = b'\x02' if y % 2 == 0 else b'\x03'
+        public_key_bytes = prefix + x.to_bytes(32, 'big')
+        sha256_hash = hashlib.sha256(public_key_bytes).digest()
         ripemd160 = hashlib.new('ripemd160')
         ripemd160.update(sha256_hash)
         hashed_public_key = ripemd160.digest()
@@ -24,13 +28,13 @@ def private_key_to_compressed_address(private_key_hex):
         bitcoin_address = base58.b58encode(binary_address).decode('utf-8')
         return bitcoin_address
     except Exception as e:
-        # Hindari spam error
+        # Uncomment for debugging:
+        # print(f"Error generating compressed address: {e}")
         return None
 
 def hybrid_brute_force_process(start, end, total_tests_per_process, process_id):
     base_key = random.randint(start, end)
     for i in range(total_tests_per_process):
-        # Ganti base key setiap 1 juta iterasi
         if i % 1_000_000 == 0:
             base_key = random.randint(start, end)
         private_key_int = base_key + (i % 1_000_000)
@@ -38,36 +42,32 @@ def hybrid_brute_force_process(start, end, total_tests_per_process, process_id):
             private_key_int = start + (private_key_int - end - 1)
         private_key_hex = f"{private_key_int:064x}"
         bitcoin_address = private_key_to_compressed_address(private_key_hex)
-        # Output progress setiap 200.000 iterasi saja
-        if i % 200_000 == 0:
+        if i % 50_000 == 0:
             progress = (i + 1) / total_tests_per_process * 100
-            print(f"\rProcess {process_id}: {progress:.2f}% | Key: {private_key_hex[:12]}...", end="")
+            sys.stdout.write(f"\rProcess {process_id}: Progress: {progress:.2f}% | Testing private key: {private_key_hex[:12]}...")
             sys.stdout.flush()
         if bitcoin_address in TARGET_ADDRESSES:
-            print(f"\n[FOUND] Process {process_id}: Private key: {private_key_hex}")
-            print(f"Address: {bitcoin_address}")
+            print(f"\nPrivate key found: {private_key_hex}")
+            print(f"Bitcoin address: {bitcoin_address}")
             return private_key_hex
-    print(f"\nProcess {process_id} selesai. Private key tidak ditemukan.")
+    print(f"\nProcess {process_id} completed. Private key not found.")
     return None
 
 if __name__ == "__main__":
     START_KEY = 0x100000000000000000
     END_KEY = 0x1fffffffffffffffff
-    TOTAL_TESTS = 10_000_000  # Untuk HP, cukup 10 juta dulu, bisa dinaikkan jika kuat
-    NUM_PROCESSES = min(2, multiprocessing.cpu_count())  # Maksimal 2 proses di HP
+    TOTAL_TESTS = 10_000_000  # Untuk HP, jangan terlalu besar
+    NUM_PROCESSES = min(2, multiprocessing.cpu_count())
     TESTS_PER_PROCESS = TOTAL_TESTS // NUM_PROCESSES
 
     with ProcessPoolExecutor(max_workers=NUM_PROCESSES) as executor:
         futures = []
         for process_id in range(NUM_PROCESSES):
-            future = executor.submit(
-                hybrid_brute_force_process,
-                START_KEY, END_KEY, TESTS_PER_PROCESS, process_id
-            )
+            future = executor.submit(hybrid_brute_force_process, START_KEY, END_KEY, TESTS_PER_PROCESS, process_id)
             futures.append(future)
         for future in futures:
             result = future.result()
             if result:
                 print(f"Found private key: {result}")
                 sys.exit(0)
-    print("\nSearch completed. Private key not found.")
+    print("Search completed. Private key not found.")
