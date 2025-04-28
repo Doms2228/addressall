@@ -13,7 +13,6 @@ def private_key_to_compressed_address(private_key_hex):
         private_key_bytes = bytes.fromhex(private_key_hex)
         sk = SigningKey.from_string(private_key_bytes, curve=SECP256k1)
         vk = sk.verifying_key
-        # Compressed public key
         x = vk.pubkey.point.x()
         y = vk.pubkey.point.y()
         prefix = b'\x02' if y % 2 == 0 else b'\x03'
@@ -27,9 +26,7 @@ def private_key_to_compressed_address(private_key_hex):
         binary_address = network_byte + checksum
         bitcoin_address = base58.b58encode(binary_address).decode('utf-8')
         return bitcoin_address
-    except Exception as e:
-        # Uncomment for debugging:
-        # print(f"Error generating compressed address: {e}")
+    except Exception:
         return None
 
 def hybrid_brute_force_process(start, end, total_tests_per_process, process_id):
@@ -44,8 +41,7 @@ def hybrid_brute_force_process(start, end, total_tests_per_process, process_id):
         bitcoin_address = private_key_to_compressed_address(private_key_hex)
         if i % 50_000 == 0:
             progress = (i + 1) / total_tests_per_process * 100
-            sys.stdout.write(f"\rProcess {process_id}: Progress: {progress:.2f}% | Testing private key: {private_key_hex[:12]}...")
-            sys.stdout.flush()
+            print(f"\rProcess {process_id}: Progress: {progress:.2f}% | Testing private key: {private_key_hex}", end="", flush=True)
         if bitcoin_address in TARGET_ADDRESSES:
             print(f"\nPrivate key found: {private_key_hex}")
             print(f"Bitcoin address: {bitcoin_address}")
@@ -57,7 +53,7 @@ if __name__ == "__main__":
     START_KEY = 0x100000000000000000
     END_KEY = 0x1fffffffffffffffff
     TOTAL_TESTS = 10_000_000  # Untuk HP, jangan terlalu besar
-    NUM_PROCESSES = min(2, multiprocessing.cpu_count())
+    NUM_PROCESSES = 1  # 1 proses agar progress jelas di Termux
     TESTS_PER_PROCESS = TOTAL_TESTS // NUM_PROCESSES
 
     with ProcessPoolExecutor(max_workers=NUM_PROCESSES) as executor:
